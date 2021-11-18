@@ -1,0 +1,16 @@
+[tool.poetry]
+name = "broadway"
+version = "0.1.0"
+description = "A Python 3.7+ actor system for asyncio."
+authors = ["John MacKenzie <john@nineteeneightd.com>"]
+
+[tool.poetry.dependencies]
+python = "^3.7"
+
+[tool.poetry.dev-dependencies]
+mypy = "^0.910"
+flake8 = "^4.0.1"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
