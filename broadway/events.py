@@ -31,14 +31,25 @@ async def loop():
     if not queue:
         queue = Queue()
 
+    queue_task = asyncio.create_task(queue.get())
+    running_handlers = set()
+
     while True:
-        name, *args = await queue.get()
-        if handlers[name]:
-            done, _ = await asyncio.wait(
-                [handler(*args) for handler in handlers[name]])
-            for task in done:
+        done, running_handlers = await asyncio.wait(
+            running_handlers.union({queue_task}),
+            return_when=asyncio.FIRST_COMPLETED)
+        for done_task in done:
+            if done_task == queue_task:
+                name, *args = await queue_task
+                logging.debug("Handling event %s: %s", name, args)
+                if handlers[name]:
+                    running_handlers = running_handlers.union({
+                        asyncio.create_task(handler(*args))
+                        for handler in handlers[name]})
+                queue_task = asyncio.create_task(queue.get())
+            else:
                 try:
-                    await task
+                    await done_task
                 except Exception:
                     logging.error(
                         "Event handler failed for %s", name, exc_info=True)
