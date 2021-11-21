@@ -9,8 +9,8 @@ def spawn(fun: Callable[..., Any], *args: Any, **kwargs: Any) -> Pid:
     return process.pid
 
 
-async def send(pid: Pid, message: Any):
-    await events.fire('message.send', pid, message)
+async def send(destination: Pid, data: Any):
+    await events.fire('message.send', destination, data)
 
 
 __all__ = (

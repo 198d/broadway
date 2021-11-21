@@ -13,11 +13,25 @@ PID_COUNTER = itertools.count(1)
 
 
 class Pid(int):
-    def __new__(cls, *args, **kwargs):
-        return super().__new__(cls, *args, **kwargs)
+    uri: Optional[str] = None
 
-    def __str__(self):
-        return f'Pid({super().__str__()})'
+    def __new__(cls, *args, **kwargs):
+        maybe_uri, *_ = args
+        if isinstance(maybe_uri, str):
+            new_object = super().__new__(cls, *args[1:], **kwargs)
+            new_object.uri = maybe_uri
+        else:
+            new_object = super().__new__(cls, *args, **kwargs)
+        return new_object
+
+    def __repr__(self):
+        if not self.uri:
+            return f'Pid({super().__repr__()})'
+        else:
+            return f'Pid({self.uri},{super().__repr__()})'
+
+    def __hash__(self):
+        return hash((self.uri, int(self)))
 
 
 @dataclass
