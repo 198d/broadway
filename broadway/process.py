@@ -47,6 +47,7 @@ class Process:
         token = context.set(self)
         self.task = asyncio.create_task(self.loop())
         context.reset(token)
+        processes[self.pid] = self
 
     async def receive(self) -> Any:
         return await self.mailbox.get()
@@ -64,11 +65,6 @@ class Process:
 
 processes: Dict[Pid, Process] = {}
 context: ContextVar[Process] = ContextVar('process_context')
-
-
-@events.register('process.started')
-async def process_started(process: Process):
-    processes[process.pid] = process
 
 
 @events.register('process.exited')
