@@ -67,6 +67,23 @@ processes: Dict[Pid, Process] = {}
 context: ContextVar[Process] = ContextVar('process_context')
 
 
+async def spawn(fun: Callable[..., Any], *args: Any, **kwargs: Any) -> Pid:
+    process = Process(fun, args, kwargs)
+    return process.pid
+
+
+async def send(destination: Pid, data: Any):
+    await events.fire('message.send', destination, data)
+
+
+async def receive() -> Any:
+    return await context.get().receive()
+
+
+def self() -> Pid:
+    return context.get().pid
+
+
 @events.register('process.exited')
 async def process_exited(process: Process):
     try:
@@ -82,11 +99,3 @@ async def process_exited(process: Process):
 async def message_send(pid: Pid, message: Any):
     if pid in processes:
         await processes[pid].deliver(message)
-
-
-async def receive() -> Any:
-    return await context.get().receive()
-
-
-def self() -> Pid:
-    return context.get().pid
