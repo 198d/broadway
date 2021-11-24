@@ -33,6 +33,12 @@ class Pid(int):
     def __hash__(self):
         return hash((self.uri, int(self)))
 
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        return await receive()
+
 
 @dataclass
 class Process:
