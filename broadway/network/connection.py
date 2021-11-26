@@ -43,15 +43,20 @@ class Connection:
                 connector=connector)
 
     async def connect(self):
-        if not self.socket:
-            try:
-                self.socket = await self.session.ws_connect(self.base_url)
-            except aiohttp.ClientConnectionError as exc:
-                await events.fire('connection.closed', self.remote_uri)
-                raise exc
+        pass
+        # if not self.socket:
+        #     try:
+        #         self.socket = await self.session.ws_connect(self.base_url)
+        #     except aiohttp.ClientConnectionError as exc:
+        #         await events.fire('connection.closed', self.remote_uri)
+        #         raise exc
 
-        if not self.task:
-            self.task = asyncio.create_task(self.loop())
+        # if not self.task:
+        #     self.task = asyncio.create_task(self.loop())
+
+    async def fire(self, name:str, *args: Any):
+        if self.session:
+            await self.request('POST', '/events', data=self.pickle((name, *args)))
 
     async def write(self, name: str, *args: Any):
         if self.socket:

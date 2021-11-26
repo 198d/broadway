@@ -21,10 +21,12 @@ async def listen(uri: str):
     global local_uri
     global server
 
-    app = web.Application()
+    app = web.Application(
+        middlewares=[handlers.connect_middleware_factory(uri, connections)])
     app.add_routes([
         web.get('/', handlers.accept),
-        web.post('/processes', handlers.spawn)])
+        web.post('/processes', handlers.spawn),
+        web.post('/events', handlers.fire)])
 
     app['local_uri'] = uri
     app['connections'] = connections
@@ -89,8 +91,10 @@ async def connection_closed(remote_uri):
 
 @events.register('message.send')
 async def message_send(destination: Pid, data: Any):
-    if destination.uri and destination.uri in connections:
-        await connections[destination.uri].write(
+    if destination.uri: 
+        if destination.uri not in connections:
+            await connect(destination.uri)
+        await connections[destination.uri].fire(
             'message.send', destination, data)
 
 
