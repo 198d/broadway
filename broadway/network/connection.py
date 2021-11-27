@@ -15,6 +15,9 @@ from .. import events
 from ..process import Pid
 
 
+logger = logging.getLogger(__name__)
+
+
 @dataclass
 class Connection:
     local_uri: str
@@ -27,7 +30,7 @@ class Connection:
     task: Optional[Task] = None
 
     def __post_init__(self):
-        logging.debug("Initializing connection: %s", self.remote_uri)
+        logger.debug("Initializing connection: %s", self.remote_uri)
         parsed = urlparse(self.remote_uri)
         hostname = parsed.netloc if parsed.scheme == 'tcp' else 'localhost'
 
@@ -74,7 +77,7 @@ class Connection:
         try:
             while True:
                 message = await self.socket.receive()
-                logging.debug(
+                logger.debug(
                     "Received message from %s: %s", self.remote_uri, message)
                 if message.type in (WSMsgType.CLOSE, WSMsgType.CLOSED):
                     break

@@ -17,6 +17,9 @@ server: Optional[Tuple[web.Application, web.AppRunner, web.BaseSite]] = None
 connections: Dict[str, Connection] = {}
 
 
+logger = logging.getLogger(__name__)
+
+
 async def listen(uri: str):
     global local_uri
     global server
@@ -52,7 +55,7 @@ async def connect(remote_uri: str) -> Optional[Connection]:
     if remote_uri in connections:
         return connections[remote_uri]
 
-    logging.debug('Attempting to connect: %s', remote_uri)
+    logger.debug('Attempting to connect: %s', remote_uri)
     try:
         connection = Connection(local_uri, remote_uri)
         connections[remote_uri] = connection
@@ -85,9 +88,9 @@ async def connection_closed(remote_uri):
     try:
         if connection.task:
             await connection.task
-        logging.debug("Connection closed: %s", connection.remote_uri)
+        logger.debug("Connection closed: %s", connection.remote_uri)
     except Exception:
-        logging.error(
+        logger.error(
             "Connection failed: %s", connection.remote_uri, exc_info=True)
     except asyncio.CancelledError:
         pass

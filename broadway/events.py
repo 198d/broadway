@@ -5,6 +5,9 @@ from collections import defaultdict
 from typing import Any, List, Mapping, Optional, Callable
 
 
+logger = logging.getLogger(__name__)
+
+
 handlers: Mapping[str, List[Callable]] = defaultdict(lambda: [])
 queue: Optional[Queue] = None
 
@@ -41,7 +44,7 @@ async def loop():
         for done_task in done:
             if done_task == queue_task:
                 name, *args = await queue_task
-                logging.debug("Handling event %s: %s", name, args)
+                logger.debug("Handling event %s: %s", name, args)
                 if handlers[name]:
                     running_handlers = running_handlers.union({
                         asyncio.create_task(handler(*args))
@@ -51,5 +54,5 @@ async def loop():
                 try:
                     await done_task
                 except Exception:
-                    logging.error(
+                    logger.error(
                         "Event handler failed for %s", name, exc_info=True)

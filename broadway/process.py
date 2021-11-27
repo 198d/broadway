@@ -9,6 +9,9 @@ from typing import Tuple, Dict, Any, Callable, Optional
 from . import events
 
 
+logger = logging.getLogger(__name__)
+
+
 PID_COUNTER = itertools.count(1)
 
 
@@ -95,9 +98,9 @@ async def process_exited(process: Process):
     try:
         if process.task:
             await process.task
-        logging.debug("Process exited: %s", process.pid)
+        logger.debug("Process exited: %s", process.pid)
     except Exception:
-        logging.error("Process crashed: %s", process.pid, exc_info=True)
+        logger.error("Process crashed: %s", process.pid, exc_info=True)
     del processes[process.pid]
 
 

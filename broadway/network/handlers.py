@@ -8,6 +8,9 @@ from .connection import Connection
 from .. import process
 
 
+logger = logging.getLogger(__name__)
+
+
 async def accept(request: web.Request) -> web.WebSocketResponse:
     sock = web.WebSocketResponse()
     await sock.prepare(request)
@@ -15,7 +18,7 @@ async def accept(request: web.Request) -> web.WebSocketResponse:
     connections = request.app['connections']
     remote_uri = request.headers['X-BROADWAY-URI']
 
-    logging.debug('Accepting connection: %s', remote_uri)
+    logger.debug('Accepting connection: %s', remote_uri)
 
     connection = Connection(
         request.app['local_uri'], remote_uri, socket=sock,
