@@ -71,6 +71,14 @@ async def spawn(remote_uri: str, fun: Callable[..., Any], *args: Any,
     raise ConnectionError(f'Could not connect: {remote_uri}')
 
 
+@events.register('connection.established')
+async def connection_established(remote_uri):
+    for connected_uri in connections:
+        if connected_uri != remote_uri:
+            await connections[remote_uri].write(
+                'connection.available', connected_uri)
+
+
 @events.register('connection.closed')
 async def connection_closed(remote_uri):
     connection = connections[remote_uri]
