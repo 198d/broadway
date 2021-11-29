@@ -6,13 +6,12 @@ from asyncio import Task
 from dataclasses import dataclass
 from pickle import Pickler
 from typing import Union, Optional, Any, Callable
-from urllib.parse import urlparse
 
 import aiohttp
 from aiohttp import web, WSMsgType
+from yarl import URL
 
 from .. import events
-from ..process import Pid
 
 
 logger = logging.getLogger(__name__)
@@ -20,9 +19,8 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class Connection:
-    local_uri: str
-    remote_uri: str
-    base_url: Optional[str] = None
+    local_uri: URL
+    remote_uri: URL
     socket: Optional[
                 Union[web.WebSocketResponse,
                       aiohttp.ClientWebSocketResponse]] = None
@@ -31,24 +29,19 @@ class Connection:
 
     def __post_init__(self):
         logger.debug("Initializing connection: %s", self.remote_uri)
-        parsed = urlparse(self.remote_uri)
-        hostname = parsed.netloc if parsed.scheme == 'tcp' else 'localhost'
-
-        self.base_url = f'http://{hostname}'
 
         if not self.session:
             connector = None
-            if parsed.scheme == 'unix':
-                connector = aiohttp.UnixConnector(parsed.path)
-
+            if '+unix' in self.remote_uri.scheme:
+                connector = aiohttp.UnixConnector(self.remote_uri.host)
             self.session = aiohttp.ClientSession(
-                headers={'X-BROADWAY-URI': self.local_uri},
+                headers={'X-BROADWAY-URI': str(self.local_uri)},
                 connector=connector)
 
     async def connect(self):
         if not self.socket:
             try:
-                self.socket = await self.session.ws_connect(self.base_url)
+                self.socket = await self.session.ws_connect(self.request_url())
             except aiohttp.ClientConnectionError as exc:
                 await events.fire('connection.closed', self.remote_uri)
                 raise exc
@@ -67,7 +60,7 @@ class Connection:
             await self.session.close()
 
     async def spawn(self, fun: Callable[..., Any], *args: Any,
-                    **kwargs: Any) -> Pid:
+                    **kwargs: Any) -> URL:
         response = await self.request(
             'POST', '/processes', data=self.pickle((fun, args, kwargs)))
         return pickle.loads(await response.read())
@@ -86,23 +79,28 @@ class Connection:
         finally:
             await events.fire('connection.closed', self.remote_uri)
 
+    def request_url(self, path: Optional[str] = None) -> URL:
+        scheme = 'https' if 'brdwys' in self.remote_uri.scheme else 'http'
+        url = self.remote_uri.with_scheme(scheme)
+        return url.with_path(path) if path else url
+
     async def request(self, method, path, *args, **kwargs):
         return await self.session.request(
-            method, f'{self.base_url}{path}', *args, **kwargs)
+            method, self.request_url(path), *args, **kwargs)
 
     def pickle(self, data: Any):
         buff = io.BytesIO()
         pickler = Pickler(buff)
         pickler.dispatch_table = {
-            Pid: self.pid_reducer
+            URL: self.url_reducer
         }
         pickler.dump(data)
         return buff.getvalue()
 
-    def pid_reducer(self, pid: Pid):
-        if not pid.uri:
-            return (Pid, (self.local_uri, int(pid)))
-        elif pid.uri == self.remote_uri:
-            return (Pid, (int(pid),))
-        else:
-            return (Pid, (pid.uri, int(pid)))
+    def url_reducer(self, url: URL):
+        if 'brdwy' in url.scheme:
+            if not url.host:
+                return self.local_uri.with_path(url.path).__reduce__()
+            elif url.authority == self.remote_uri.authority:
+                return URL(f'brdwy:{url.path}').__reduce__()
+        return url.__reduce__()

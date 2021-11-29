@@ -294,7 +294,7 @@ testing = ["pytest (>=4.6)", "pytest-checkdocs (>=2.4)", "pytest-flake8", "pytes
 [metadata]
 lock-version = "1.1"
 python-versions = "^3.7"
-content-hash = "ccb4ae5c60b0df7d5523f3295a5eca87aec0c6fc232ad524c498d8cce99e0955"
+content-hash = "7c198fadbf23181cd70b5a5e6cf7695faa3510ed7650756021d32c5d4813b367"
 
 [metadata.files]
 aiodns = [

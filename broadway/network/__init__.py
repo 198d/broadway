@@ -1,20 +1,24 @@
 import asyncio
 import logging
+import os
+from pathlib import Path
 from typing import Optional, Any, Tuple, Dict, Callable
-from urllib.parse import urlparse
 
 import aiohttp
 from aiohttp import web
+from yarl import URL
 
 from . import handlers
 from .connection import Connection
 from .. import events
-from ..process import Pid
 
 
-local_uri: Optional[str] = None
+BROADWAY_SOCK_DIR = Path(os.getenv('BROADWAY_SOCK_DIR', os.getcwd()))
+
+
+local_uri: Optional[URL] = None
 server: Optional[Tuple[web.Application, web.AppRunner, web.BaseSite]] = None
-connections: Dict[str, Connection] = {}
+connections: Dict[URL, Connection] = {}
 
 
 logger = logging.getLogger(__name__)
@@ -24,41 +28,44 @@ async def listen(uri: str):
     global local_uri
     global server
 
+    parsed = URL(uri)
+
     app = web.Application()
     app.add_routes([
         web.get('/', handlers.accept),
         web.post('/processes', handlers.spawn)])
 
-    app['local_uri'] = uri
+    app['local_uri'] = parsed
     app['connections'] = connections
 
     runner = web.AppRunner(app)
     await runner.setup()
 
-    parsed = urlparse(uri)
-
     site: Optional[web.BaseSite] = None
-    if parsed.scheme == 'tcp':
-        site = web.TCPSite(runner, parsed.hostname, parsed.port)
-    elif parsed.scheme == 'unix':
-        site = web.UnixSite(runner, parsed.path)
+    if parsed.host:
+        if '+unix' in parsed.scheme:
+            site = web.UnixSite(runner, str(BROADWAY_SOCK_DIR / parsed.host))
+        else:
+            site = web.TCPSite(runner, parsed.host, parsed.port)
 
     if site:
-        local_uri = uri
+        local_uri = parsed
         server = (app, runner, site)
         await site.start()
 
 
 async def connect(remote_uri: str) -> Optional[Connection]:
+    parsed = URL(remote_uri)
+
     if not local_uri or remote_uri == local_uri:
         return None
-    if remote_uri in connections:
-        return connections[remote_uri]
+    if parsed in connections:
+        return connections[parsed]
 
-    logger.debug('Attempting to connect: %s', remote_uri)
+    logger.debug('Attempting to connect: %s', parsed)
     try:
-        connection = Connection(local_uri, remote_uri)
-        connections[remote_uri] = connection
+        connection = Connection(local_uri, parsed)
+        connections[parsed] = connection
         await connection.connect()
     except aiohttp.ClientConnectionError:
         return None
@@ -67,7 +74,7 @@ async def connect(remote_uri: str) -> Optional[Connection]:
 
 
 async def spawn(remote_uri: str, fun: Callable[..., Any], *args: Any,
-                **kwargs: Any) -> Pid:
+                **kwargs: Any) -> URL:
     connection = await connect(remote_uri)
     if connection:
         return await connection.spawn(fun, *args, **kwargs)
@@ -99,9 +106,10 @@ async def connection_closed(remote_uri):
 
 
 @events.register('message.send')
-async def message_send(destination: Pid, data: Any):
-    if destination.uri and destination.uri in connections:
-        await connections[destination.uri].write(
+async def message_send(destination: URL, data: Any):
+    connection_uri = destination.with_path('')
+    if connection_uri in connections:
+        await connections[connection_uri].write(
             'message.send', destination, data)
 
 

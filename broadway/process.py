@@ -6,6 +6,8 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Tuple, Dict, Any, Callable, Optional
 
+from yarl import URL
+
 from . import events
 
 
@@ -15,32 +17,12 @@ logger = logging.getLogger(__name__)
 PID_COUNTER = itertools.count(1)
 
 
-class Pid(int):
-    uri: Optional[str] = None
-
-    def __new__(cls, *args, **kwargs):
-        maybe_uri, *_ = args
-        if isinstance(maybe_uri, str):
-            new_object = super().__new__(cls, *args[1:], **kwargs)
-            new_object.uri = maybe_uri
-        else:
-            new_object = super().__new__(cls, *args, **kwargs)
-        return new_object
-
-    def __repr__(self):
-        if not self.uri:
-            return f'Pid({super().__repr__()})'
-        else:
-            return f'Pid({self.uri},{super().__repr__()})'
-
-    def __hash__(self):
-        return hash((self.uri, int(self)))
-
+class Mailbox(Queue):
     def __aiter__(self):
         return self
 
     async def __anext__(self):
-        return await receive()
+        return await self.get()
 
 
 @dataclass
@@ -48,15 +30,16 @@ class Process:
     fun: Callable[..., Any]
     args: Tuple[Any, ...]
     kwargs: Dict[str, Any]
-    pid: Pid = field(default_factory=lambda: Pid(next(PID_COUNTER)))
-    mailbox: Queue = field(default_factory=Queue)
+    uri: URL = field(
+        default_factory=lambda: URL(f'brdwy:/processes/{next(PID_COUNTER)}'))
+    mailbox: Mailbox = field(default_factory=Mailbox)
     task: Optional[Task] = field(default=None)
 
     def __post_init__(self):
         token = context.set(self)
         self.task = asyncio.create_task(self.loop())
         context.reset(token)
-        processes[self.pid] = self
+        processes[self.uri] = self
 
     async def receive(self) -> Any:
         return await self.mailbox.get()
@@ -72,16 +55,16 @@ class Process:
             await events.fire('process.exited', self)
 
 
-processes: Dict[Pid, Process] = {}
+processes: Dict[URL, Process] = {}
 context: ContextVar[Process] = ContextVar('process_context')
 
 
-async def spawn(fun: Callable[..., Any], *args: Any, **kwargs: Any) -> Pid:
+async def spawn(fun: Callable[..., Any], *args: Any, **kwargs: Any) -> URL:
     process = Process(fun, args, kwargs)
-    return process.pid
+    return process.uri
 
 
-async def send(destination: Pid, data: Any):
+async def send(destination: URL, data: Any):
     await events.fire('message.send', destination, data)
 
 
@@ -89,8 +72,12 @@ async def receive() -> Any:
     return await context.get().receive()
 
 
-def self() -> Pid:
-    return context.get().pid
+def mailbox() -> Mailbox:
+    return context.get().mailbox
+
+
+def self() -> URL:
+    return context.get().uri
 
 
 @events.register('process.exited')
@@ -98,13 +85,13 @@ async def process_exited(process: Process):
     try:
         if process.task:
             await process.task
-        logger.debug("Process exited: %s", process.pid)
+        logger.debug("Process exited: %s", process.uri)
     except Exception:
-        logger.error("Process crashed: %s", process.pid, exc_info=True)
-    del processes[process.pid]
+        logger.error("Process crashed: %s", process.uri, exc_info=True)
+    del processes[process.uri]
 
 
 @events.register('message.send')
-async def message_send(pid: Pid, message: Any):
-    if pid in processes:
-        await processes[pid].deliver(message)
+async def message_send(uri: URL, message: Any):
+    if uri in processes:
+        await processes[uri].deliver(message)
