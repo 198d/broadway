@@ -91,16 +91,20 @@ async def connection_established(remote_uri):
 
 @events.register('connection.closed')
 async def connection_closed(remote_uri):
-    connection = connections[remote_uri]
     try:
-        if connection.task:
-            await connection.task
+        connection = connections[remote_uri]
+        if connection.tasks:
+            for task in connection.tasks:
+                task.cancel()
+                await task
         logger.debug("Connection closed: %s", connection.remote_uri)
+    except KeyError:
+        return
+    except asyncio.CancelledError:
+        pass
     except Exception:
         logger.error(
             "Connection failed: %s", connection.remote_uri, exc_info=True)
-    except asyncio.CancelledError:
-        pass
     await connection.close()
     del connections[connection.remote_uri]
 
@@ -108,7 +112,9 @@ async def connection_closed(remote_uri):
 @events.register('message.send')
 async def message_send(destination: URL, data: Any):
     connection_uri = destination.with_path('')
-    if connection_uri in connections:
+    if connection_uri.host:
+        if connection_uri not in connections:
+            await connect(connection_uri)
         await connections[connection_uri].write(
             'message.send', destination, data)
 

@@ -2,10 +2,10 @@ import asyncio
 import logging
 import io
 import pickle
-from asyncio import Task
-from dataclasses import dataclass
+from asyncio import Task, Queue
+from dataclasses import dataclass, field
 from pickle import Pickler
-from typing import Union, Optional, Any, Callable
+from typing import Union, Optional, Any, Callable, List
 
 import aiohttp
 from aiohttp import web, WSMsgType
@@ -21,11 +21,12 @@ logger = logging.getLogger(__name__)
 class Connection:
     local_uri: URL
     remote_uri: URL
-    socket: Optional[
+    sockets: List[
                 Union[web.WebSocketResponse,
-                      aiohttp.ClientWebSocketResponse]] = None
+                      aiohttp.ClientWebSocketResponse]] = field(default_factory=list)
     session: Optional[aiohttp.ClientSession] = None
-    task: Optional[Task] = None
+    tasks: List[Task] = field(default_factory=list)
+    messages: Queue = field(default_factory=Queue)
 
     def __post_init__(self):
         logger.debug("Initializing connection: %s", self.remote_uri)
@@ -38,24 +39,28 @@ class Connection:
                 headers={'X-BROADWAY-URI': str(self.local_uri)},
                 connector=connector)
 
+    def accept(self, socket: web.WebSocketResponse):
+        self.sockets.append(socket)
+        self.tasks.append(asyncio.current_task())
+
     async def connect(self):
-        if not self.socket:
+        if not self.sockets:
             try:
-                self.socket = await self.session.ws_connect(self.request_url())
+                self.sockets.append(await self.session.ws_connect(self.request_url()))
+                self.tasks.append(asyncio.create_task(self.loop(self.sockets[-1])))
             except aiohttp.ClientConnectionError as exc:
                 await events.fire('connection.closed', self.remote_uri)
                 raise exc
 
-        if not self.task:
-            self.task = asyncio.create_task(self.loop())
-
     async def write(self, name: str, *args: Any):
-        if self.socket:
-            await self.socket.send_bytes(self.pickle((name, *args)))
+        if self.sockets:
+            await self.sockets[0].send_bytes(self.pickle((name, *args)))
 
     async def close(self):
-        if self.socket and not self.socket.closed:
-            await self.socket.close()
+        if self.sockets:
+            for socket in self.sockets:
+                if not socket.closed:
+                    await socket.close()
         if self.session and not self.session.closed:
             await self.session.close()
 
@@ -65,11 +70,13 @@ class Connection:
             'POST', '/processes', data=self.pickle((fun, args, kwargs)))
         return pickle.loads(await response.read())
 
-    async def loop(self):
+    async def loop(
+            self, socket: Union[web.WebSocketResponse,
+                                aiohttp.ClientWebSocketResponse]):
         await events.fire('connection.established', self.remote_uri)
         try:
             while True:
-                message = await self.socket.receive()
+                message = await socket.receive()
                 logger.debug(
                     "Received message from %s: %s", self.remote_uri, message)
                 if message.type in (WSMsgType.CLOSE, WSMsgType.CLOSED):
